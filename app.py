@@ -19,7 +19,7 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 load_dotenv()
 
 AUTOCORRECT_PROMPT = """
-For each string in the array {}, generate 1 possible English phrase the string may have been misspelled as, using the theme of {} as a clue for the original phrase. Try to maximize the confidence of each phrase.
+For each string in the array {}, generate 1 possible English phrase the string may have been misspelled as, using the topic of "{}" as a clue for the original phrase. Try find the most likely word for each.
 Answer in as an array of JSON objects in the following format: 
 [
  {{
@@ -38,10 +38,8 @@ def hello():
 @app.route("/api/text_from_image",methods=['POST'])
 @cross_origin()
 def text_from_image():
-    if (request.method != 'POST'):
-        return "Error: Invalid request method"
-    
     THEME = request.get_json()['theme']
+    #DESC = request.get_json()['desc']
     BLOB = request.get_json()['blob']
     bstr = b''
     for i in range(len(BLOB)):
@@ -60,7 +58,7 @@ def text_from_image():
         cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
     reader = easyocr.Reader(['en'], gpu=False)
     text = reader.readtext(thresh)
-
+    print("image processed", file=sys.stderr)
     results = []
     texts = []
     for i in text:
@@ -69,7 +67,7 @@ def text_from_image():
         if size < 1000 and len(phrase) < len(text) % 75 + 2 or len(text) > 75 and len(phrase) < 7 and confidence < 0.25: # ignore small text and letters
             continue
         results.append({
-            'size': size,
+            'emphasis': 0.00003 * size,
             'text': phrase,
             'confidence': float(confidence),
             'pos': str(pos),
@@ -78,7 +76,7 @@ def text_from_image():
     texts1 = texts[:75]
     texts2 = texts[75:150]
     texts3 = texts[150:]
-    ac1 = AUTOCORRECT(texts1, THEME)
+    ac1 = AUTOCORRECT(texts1, THEME)#, DESC)
     ac2, ac3 = [], []
     if (len(texts2) > 0):
         ac2 = AUTOCORRECT(texts2, THEME)
@@ -90,14 +88,16 @@ def text_from_image():
         results[i]['autocorrect'] = ac[i]
     results.sort(key=lambda x: int(x['size']), reverse=True)
     json_data = json.dumps(results, indent=2)
-
+    print("done", file=sys.stderr)
     return json_data
-def AUTOCORRECT(text, theme):
+
+
+def AUTOCORRECT(text, theme):#, desc):
     openai.api_key = GPT_KEY  
     try:
       response = openai.ChatCompletion.create(
           model="gpt-4",
-          messages=[{"role": "user", "content": AUTOCORRECT_PROMPT.format(text, theme)}],
+          messages=[{"role": "user", "content": AUTOCORRECT_PROMPT.format(text, theme)}],#, desc)}],
           n=1,
           stop=None,
           temperature=0.5,
@@ -109,7 +109,7 @@ def AUTOCORRECT(text, theme):
       try:
         response = openai.ChatCompletion.create(
             model="gpt-3.5",
-            messages=[{"role": "user", "content": AUTOCORRECT_PROMPT.format(text, theme)}],
+            messages=[{"role": "user", "content": AUTOCORRECT_PROMPT.format(text, theme)}],#, desc)}],
             n=1,
             stop=None,
             temperature=0.5,
