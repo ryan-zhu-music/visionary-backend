@@ -86,7 +86,7 @@ def text_from_image():
             ac3 = AUTOCORRECT(texts3, THEME)
 
     ac = ac1 + ac2 + ac3
-    for i in range(len(results)):
+    for i in range(min(len(results), len(ac))):
         results[i]['autocorrect'] = ac[i]
     results.sort(key=lambda x: int(x['size']), reverse=True)
     json_data = json.dumps(results, indent=2)
