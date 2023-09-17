@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 import openai
 import sys
-
+import requests
 
 app = Flask(__name__)
 cors = CORS(app)
@@ -29,6 +29,8 @@ Answer in as an array of JSON objects in the following format:
 ]"""
 
 GPT_KEY = os.getenv('GPT_KEY')
+COHERE_KEY = os.getenv('COHERE_KEY')
+COHERE_KEY_2 = os.getenv('COHERE_KEY_2')
       
 @app.route('/')
 @cross_origin()
@@ -39,7 +41,6 @@ def hello():
 @cross_origin()
 def text_from_image():
     THEME = request.get_json()['theme']
-    #DESC = request.get_json()['desc']
     BLOB = request.get_json()['blob']
     bstr = b''
     for i in range(len(BLOB)):
@@ -86,7 +87,6 @@ def text_from_image():
     ac = ac1 + ac2 + ac3
     for i in range(min(len(results), len(ac))):
         results[i]['autocorrect'] = ac[i]
-    results.sort(key=lambda x: int(x['size']), reverse=True)
     json_data = json.dumps(results, indent=2)
     print("done", file=sys.stderr)
     return json_data
@@ -119,3 +119,75 @@ def AUTOCORRECT(text, theme):#, desc):
         return message
       except:
         return []
+      
+@app.route("/api/generate_notes",methods=['POST'])
+@cross_origin()
+def generate_notes():
+    topic = request.get_json()['topic']
+    description = request.get_json()['description']
+    data = request.get_json()['data']
+
+    s = "Use the "
+    if topic!="":
+        s += f"topic \"{topic}\""
+    if description!="":
+        if topic!="":
+            s += " and "
+        s += f"description: {description}\n"
+    s += "as guidelines for notes generation.\n"
+    
+    #write prompt here
+    prompt = f"""Generate notes in point-form using the following JSON data as hints about points from a lecture/presentation. Consider the following parameters: \"emphasis\" refers to the significance of the text, so phrases with greater emphasis are more likely to be main topics/headers. Use "autocorrect.possibility" as the extracted text, and "autocorrect.confidence" refers to the probability that text is accurate. If a word with low accuracy does not fit the other subjects, it is okay to omit it.
+    {s if topic!="" or description!="" else ""}
+    JSON Data: {data}\n"""
+
+    headers = {
+        'Authorization': 'BEARER ' + COHERE_KEY,
+        'Content-Type': 'application/json',
+    }
+
+    # model/output parameters
+    json_data = {
+    'model': 'command-nightly',
+    "prompt": prompt,
+    'max_tokens': 500,
+    'temperature': 0.5,
+    'k': 0,
+    'stop_sequences': [],
+    'return_likelihoods': 'NONE',
+    }
+
+    response = requests.post('https://api.cohere.ai/v1/generate', headers=headers, json=json_data)
+    response_dict = json.loads(response.text)
+    return response_dict["generations"][0]["text"]
+
+@app.route("/api/generate_json",methods=['POST'])
+@cross_origin()
+def generate_json():
+    open_format = open('jsonformat.txt','r')
+    json_format = ""
+    for line in open_format:
+        json_format = json_format + line
+    open_format.close()
+
+    notes = request.get_json()['notes']
+
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + GPT_KEY,
+    }
+
+    json_data = {
+        'model': 'gpt-4',
+        'messages': [
+            {
+                'role': 'user',
+                'content': f'Write the given text in a similar format as the given JSON. Use the markdown header information to determine what text is a header and what size the header should be. \n\nData: \n{notes} \n\nJSON: {json_format}\n',
+            },
+        ],
+        'temperature': 0.5,
+    }
+
+    response = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=json_data)
+    response_dict = json.loads(response.text)
+    return(response_dict['choices'][0]['message']['content'])
